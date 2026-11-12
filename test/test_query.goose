@@ -125,7 +125,7 @@ fn bad(db: sqlite::Db, name: const u8[:], q: const sqlite::Query&) {
 fn test_misuse(db: sqlite::Db) {
     var nul: u8[>..] = [];
     nul.append("a = 1");
-    nul.push(0 as u8);
+    nul.push(0);
 
     var a1 = sqlite::select_from("bad name", "a"); bad(db, "bad table", a1);
     var a2 = sqlite::select_from("1abc", "a"); bad(db, "table starts with digit", a2);
