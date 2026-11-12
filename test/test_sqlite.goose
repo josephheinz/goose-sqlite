@@ -245,11 +245,38 @@ fn test_migrate() {
     fresh(path);
 }
 
+thread_fn aborter(path: u8[..256]) {
+    let db = sqlite::local(path, sqlite::Mode.ReadWrite);
+    sqlite::begin(db);
+    add_row(db, "orphan");
+    abort("boom");
+}
+
+fn test_abort_releases_lock() {
+    let path = "test/ab.db";
+    fresh(path);
+    let db = sqlite::open(path, sqlite::Mode.Create);
+    sqlite::exec(db, "PRAGMA journal_mode=WAL");
+    sqlite::exec(db, "CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)");
+    var p: u8[..256] = "";
+    p.append(path);
+    let id = thread_spawn_contained(aborter, p);
+    var msg: u8[>..] = [];
+    check("aborter aborted", !thread_wait(id, msg));
+    sqlite::set_busy_timeout(db, 300);
+    check("aborted worker releases lock", sqlite::begin(db));
+    sqlite::rollback(db);
+    check("aborted worker rows discarded", count_rows(db) == 0);
+    sqlite::close(db);
+    fresh(path);
+}
+
 fn main() {
     test_results();
     test_query_only();
     test_writer();
     test_migrate();
+    test_abort_releases_lock();
     test_transactions();
     let path = "test/t.db";
     delete_file(path);

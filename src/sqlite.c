@@ -18,8 +18,41 @@ typedef struct gsq_claim { char *path; pthread_t owner; struct gsq_claim *next; 
 
 static pthread_mutex_t claims_lock = PTHREAD_MUTEX_INITIALIZER;
 static gsq_claim *claims;
-static __thread gsq_db *local_dbs;
+typedef struct { gsq_db *head; } gsq_holder;
+
+static __thread gsq_holder *tl_holder;
 static __thread char open_error[256];
+static pthread_once_t holder_once = PTHREAD_ONCE_INIT;
+static pthread_key_t holder_key;
+
+static void claim_drop(const char *path) {
+    pthread_mutex_lock(&claims_lock);
+    for (gsq_claim **pp = &claims; *pp; pp = &(*pp)->next)
+        if (strcmp((*pp)->path, path) == 0) { gsq_claim *c = *pp; *pp = c->next; free(c->path); free(c); break; }
+    pthread_mutex_unlock(&claims_lock);
+}
+static void gsq_free_db(gsq_db *d) {
+    if (d->mode == GSQ_WRITER) claim_drop(d->path);
+    for (gsq_stmt *s = d->stmts, *n; s; s = n) { n = s->next; sqlite3_finalize(s->st); free((void *)s->sql); free(s); }
+    sqlite3_close(d->db);
+    free(d->path);
+    free(d);
+}
+/* A Goose thread that ends or aborts never calls gsq_close; without this its cached connections would keep their locks until the process exits. */
+static void holder_destroy(void *p) {
+    gsq_holder *h = p;
+    for (gsq_db *d = h->head, *n; d; d = n) { n = d->next; gsq_free_db(d); }
+    free(h);
+}
+static void holder_key_init(void) { pthread_key_create(&holder_key, holder_destroy); }
+static gsq_holder *holder_get(void) {
+    if (tl_holder) return tl_holder;
+    gsq_holder *h = calloc(1, sizeof *h);
+    pthread_once(&holder_once, holder_key_init);
+    pthread_setspecific(holder_key, h);
+    tl_holder = h;
+    return h;
+}
 
 uint64_t gsq_open(gsq_bytes path, int32_t mode) {
     char *p = malloc((size_t)path.len + 1);
@@ -40,11 +73,12 @@ uint64_t gsq_open(gsq_bytes path, int32_t mode) {
     return (uint64_t)(uintptr_t)d;
 }
 uint64_t gsq_local(gsq_bytes path, int32_t mode) {
-    for (gsq_db *d = local_dbs; d; d = d->next)
+    gsq_holder *h = holder_get();
+    for (gsq_db *d = h->head; d; d = d->next)
         if (d->mode == mode && strlen(d->path) == (size_t)path.len && memcmp(d->path, path.data, (size_t)path.len) == 0) return (uint64_t)(uintptr_t)d;
     gsq_db *d = (gsq_db *)(uintptr_t)gsq_open(path, mode);
     if (!d) return 0;
-    d->next = local_dbs; local_dbs = d;
+    d->next = h->head; h->head = d;
     return (uint64_t)(uintptr_t)d;
 }
 void gsq_error(uint64_t h, gs_rref out) {
@@ -100,22 +134,12 @@ void gsq_text_copy(uint64_t s, int32_t i, gs_rref out) {
     int n = sqlite3_column_bytes(ST(s), i);
     if (t && n > 0) gs_bld_append(out, t, (size_t)n);
 }
-static void claim_drop(const char *path) {
-    pthread_mutex_lock(&claims_lock);
-    for (gsq_claim **pp = &claims; *pp; pp = &(*pp)->next)
-        if (strcmp((*pp)->path, path) == 0) { gsq_claim *c = *pp; *pp = c->next; free(c->path); free(c); break; }
-    pthread_mutex_unlock(&claims_lock);
-}
 /* Closes a connection from gsq_open (or a thread-local one, which is then forgotten). */
 void gsq_close(uint64_t h) {
     gsq_db *d = (gsq_db *)(uintptr_t)h;
     if (!d) return;
-    if (d->mode == GSQ_WRITER) claim_drop(d->path);
-    for (gsq_db **pp = &local_dbs; *pp; pp = &(*pp)->next) if (*pp == d) { *pp = d->next; break; }
-    for (gsq_stmt *s = d->stmts, *n; s; s = n) { n = s->next; sqlite3_finalize(s->st); free((void *)s->sql); free(s); }
-    sqlite3_close(d->db);
-    free(d->path);
-    free(d);
+    if (tl_holder) for (gsq_db **pp = &tl_holder->head; *pp; pp = &(*pp)->next) if (*pp == d) { *pp = d->next; break; }
+    gsq_free_db(d);
 }
 int64_t gsq_changes(uint64_t h) { return h ? sqlite3_changes64(((gsq_db *)(uintptr_t)h)->db) : 0; }
 int64_t gsq_last_id(uint64_t h) { return h ? sqlite3_last_insert_rowid(((gsq_db *)(uintptr_t)h)->db) : 0; }
@@ -158,7 +182,8 @@ static int pragma_text_is(sqlite3 *db, const char *sql, const char *want) {
     return same;
 }
 uint64_t gsq_writer(gsq_bytes path, int32_t durable) {
-    for (gsq_db *d = local_dbs; d; d = d->next)
+    gsq_holder *h = holder_get();
+    for (gsq_db *d = h->head; d; d = d->next)
         if (d->mode == GSQ_WRITER && strlen(d->path) == (size_t)path.len && memcmp(d->path, path.data, (size_t)path.len) == 0) return (uint64_t)(uintptr_t)d;
     char *p = malloc((size_t)path.len + 1);
     memcpy(p, path.data, (size_t)path.len); p[path.len] = 0;
@@ -174,7 +199,7 @@ uint64_t gsq_writer(gsq_bytes path, int32_t durable) {
     if (!pragma_text_is(d->db, "PRAGMA journal_mode=WAL", "wal")) strlcpy(open_error, "cannot enable WAL", sizeof open_error);
     else if (sqlite3_exec(d->db, sync, NULL, NULL, NULL) != SQLITE_OK || (durable && sqlite3_exec(d->db, "PRAGMA fullfsync=1", NULL, NULL, NULL) != SQLITE_OK))
         strlcpy(open_error, sqlite3_errmsg(d->db), sizeof open_error);
-    else { d->next = local_dbs; local_dbs = d; return (uint64_t)(uintptr_t)d; }
+    else { d->next = h->head; h->head = d; return (uint64_t)(uintptr_t)d; }
     gsq_close((uint64_t)(uintptr_t)d);
     return 0;
 }
