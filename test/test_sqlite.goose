@@ -158,9 +158,67 @@ fn test_query_only() {
     fresh(path);
 }
 
+struct Claim { ok: bool, msg: u8[..128] }
+
+thread_fn claimant(path: u8[..256]) {
+    let db = sqlite::writer(path);
+    var c = Claim { ok: sqlite::ok(db), msg: "" };
+    if !c.ok { c.msg.append(sqlite::error(db)); }
+    qput(c);
+}
+
+fn pragma_text(db: sqlite::Db, sql: const u8[:]) -> u8[>..] {
+    let s = sqlite::prepare(db, sql);
+    if !sqlite::step(s) { return []; }
+    let v = sqlite::text(s, 0);
+    sqlite::reset(s);
+    return v;
+}
+
+fn pragma_int(db: sqlite::Db, sql: const u8[:]) -> i64 {
+    let s = sqlite::prepare(db, sql);
+    if !sqlite::step(s) { return -1; }
+    let v = sqlite::int(s, 0);
+    sqlite::reset(s);
+    return v;
+}
+
+fn test_writer() {
+    let path = "test/wr.db";
+    fresh(path);
+    let a = sqlite::writer(path);
+    check("writer open", sqlite::ok(a));
+    check("writer wal", sqlite::exec(a, "CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)") && pragma_text(a, "PRAGMA journal_mode") == "wal");
+    check("writer same thread", sqlite::writer(path).h == a.h);
+    check("writer normal", pragma_int(a, "PRAGMA synchronous") == 1);
+    var p: u8[..256] = "";
+    p.append(path);
+    thread_spawn(claimant, p);
+    let c = qget<Claim>();
+    check("writer other thread", !c.ok && find(c.msg, "writer") >= 0);
+    sqlite::close(a);
+    let d = sqlite::writer(path, true);
+    check("writer durable", sqlite::ok(d) && pragma_int(d, "PRAGMA synchronous") == 2 && pragma_int(d, "PRAGMA fullfsync") == 1);
+    let ins = sqlite::prepare(d, "INSERT INTO u (k, n) VALUES (?, 0)");
+    var total = 0;
+    var worst = 0;
+    for i in 2000 {
+        sqlite::bind(ins, 1, str("k", i));
+        let t0 = clock_ns();
+        sqlite::run(ins);
+        let dt = clock_ns() - t0;
+        total += dt;
+        worst = max(worst, dt);
+    }
+    print("durable insert mean us: ", total / 2000 / 1000, " max us: ", worst / 1000);
+    sqlite::close(d);
+    fresh(path);
+}
+
 fn main() {
     test_results();
     test_query_only();
+    test_writer();
     test_transactions();
     let path = "test/t.db";
     delete_file(path);

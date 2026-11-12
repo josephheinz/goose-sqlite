@@ -27,6 +27,7 @@ extern fn c_is_null(s: u64, i: i32) -> i32 = "gsq_is_null";
 extern fn c_close(h: u64) = "gsq_close";
 extern fn c_changes(h: u64) -> i64 = "gsq_changes";
 extern fn c_last_id(h: u64) -> i64 = "gsq_last_id";
+extern fn c_writer(path: const u8[:], durable: i32) -> u64 = "gsq_writer";
 extern fn c_run(s: u64) -> i32 = "gsq_run";
 extern fn c_stmt_last_id(s: u64) -> i64 = "gsq_stmt_last_id";
 extern fn c_stmt_changes(s: u64) -> i64 = "gsq_stmt_changes";
@@ -39,6 +40,8 @@ extern fn c_busy_timeout(h: u64, ms: i32) = "gsq_busy_timeout";
 fn mode_code(m: Mode) -> i32 { match m { ReadOnly => 0, ReadWrite => 1, Create => 2, QueryOnly => 3 } }
 fn open(path: const u8[:], mode: Mode = Mode.ReadOnly) -> Db { Db { h: c_open(path, mode_code(mode)) } }
 fn local(path: const u8[:], mode: Mode = Mode.ReadOnly) -> Db { Db { h: c_local(path, mode_code(mode)) } }
+// This thread's read-write connection in WAL mode, claimed for the process; another thread asking for the same path text fails.
+fn writer(path: const u8[:], durable: bool = false) -> Db { Db { h: c_writer(path, if durable { 1 } else { 0 }) } }
 fn ok(db: Db) -> bool { db.h != 0 }
 fn ok(s: Stmt) -> bool { s.h != 0 }
 fn error(db: Db) -> u8[>..] { var out: u8[>..] = []; c_error(db.h, out); return out; }

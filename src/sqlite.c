@@ -3,13 +3,21 @@
 #include "goose.h"
 #include <sqlite3.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 typedef struct { const uint8_t *data; int64_t len; } gsq_bytes;
 typedef struct gsq_stmt { sqlite3_stmt *st; const char *sql; int64_t len; struct gsq_stmt *next; } gsq_stmt;
 typedef struct gsq_db { sqlite3 *db; char *path; int mode; gsq_stmt *stmts; struct gsq_db *next; } gsq_db;
 
+#define GSQ_WRITER 4
+
+typedef struct gsq_claim { char *path; pthread_t owner; struct gsq_claim *next; } gsq_claim;
+
+static pthread_mutex_t claims_lock = PTHREAD_MUTEX_INITIALIZER;
+static gsq_claim *claims;
 static __thread gsq_db *local_dbs;
 static __thread char open_error[256];
 
@@ -92,10 +100,17 @@ void gsq_text_copy(uint64_t s, int32_t i, gs_rref out) {
     int n = sqlite3_column_bytes(ST(s), i);
     if (t && n > 0) gs_bld_append(out, t, (size_t)n);
 }
+static void claim_drop(const char *path) {
+    pthread_mutex_lock(&claims_lock);
+    for (gsq_claim **pp = &claims; *pp; pp = &(*pp)->next)
+        if (strcmp((*pp)->path, path) == 0) { gsq_claim *c = *pp; *pp = c->next; free(c->path); free(c); break; }
+    pthread_mutex_unlock(&claims_lock);
+}
 /* Closes a connection from gsq_open (or a thread-local one, which is then forgotten). */
 void gsq_close(uint64_t h) {
     gsq_db *d = (gsq_db *)(uintptr_t)h;
     if (!d) return;
+    if (d->mode == GSQ_WRITER) claim_drop(d->path);
     for (gsq_db **pp = &local_dbs; *pp; pp = &(*pp)->next) if (*pp == d) { *pp = d->next; break; }
     for (gsq_stmt *s = d->stmts, *n; s; s = n) { n = s->next; sqlite3_finalize(s->st); free((void *)s->sql); free(s); }
     sqlite3_close(d->db);
@@ -121,3 +136,45 @@ int32_t gsq_begin(uint64_t h) { return h && sqlite3_exec(DB(h), "BEGIN IMMEDIATE
 int32_t gsq_commit(uint64_t h) { return h && sqlite3_exec(DB(h), "COMMIT", NULL, NULL, NULL) == SQLITE_OK; }
 /* Only when a transaction is open, so a rollback after a failed BEGIN or a finished commit leaves the error state alone. */
 void gsq_rollback(uint64_t h) { if (h && !sqlite3_get_autocommit(DB(h))) sqlite3_exec(DB(h), "ROLLBACK", NULL, NULL, NULL); }
+/* Claimed by the path text as given: "data/a.db" and "./data/a.db" are two claims. */
+static int claim_take(char *p) {
+    int taken = 1;
+    pthread_mutex_lock(&claims_lock);
+    for (gsq_claim *c = claims; c; c = c->next)
+        if (strcmp(c->path, p) == 0) { taken = 0; break; }
+    if (taken) {
+        gsq_claim *c = malloc(sizeof *c);
+        c->path = strdup(p); c->owner = pthread_self(); c->next = claims; claims = c;
+    }
+    pthread_mutex_unlock(&claims_lock);
+    return taken;
+}
+static int pragma_text_is(sqlite3 *db, const char *sql, const char *want) {
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK) return 0;
+    const unsigned char *t = sqlite3_step(st) == SQLITE_ROW ? sqlite3_column_text(st, 0) : NULL;
+    int same = t && strcmp((const char *)t, want) == 0;
+    sqlite3_finalize(st);
+    return same;
+}
+uint64_t gsq_writer(gsq_bytes path, int32_t durable) {
+    for (gsq_db *d = local_dbs; d; d = d->next)
+        if (d->mode == GSQ_WRITER && strlen(d->path) == (size_t)path.len && memcmp(d->path, path.data, (size_t)path.len) == 0) return (uint64_t)(uintptr_t)d;
+    char *p = malloc((size_t)path.len + 1);
+    memcpy(p, path.data, (size_t)path.len); p[path.len] = 0;
+    if (!claim_take(p)) {
+        snprintf(open_error, sizeof open_error, "another thread is the writer for %s", p);
+        free(p); return 0;
+    }
+    gsq_db *d = (gsq_db *)(uintptr_t)gsq_open(path, GSQ_WRITER);
+    if (!d) { claim_drop(p); free(p); return 0; }
+    free(p);
+    sqlite3_busy_timeout(d->db, 1000);
+    const char *sync = durable ? "PRAGMA synchronous=FULL" : "PRAGMA synchronous=NORMAL";
+    if (!pragma_text_is(d->db, "PRAGMA journal_mode=WAL", "wal")) strlcpy(open_error, "cannot enable WAL", sizeof open_error);
+    else if (sqlite3_exec(d->db, sync, NULL, NULL, NULL) != SQLITE_OK || (durable && sqlite3_exec(d->db, "PRAGMA fullfsync=1", NULL, NULL, NULL) != SQLITE_OK))
+        strlcpy(open_error, sqlite3_errmsg(d->db), sizeof open_error);
+    else { d->next = local_dbs; local_dbs = d; return (uint64_t)(uintptr_t)d; }
+    gsq_close((uint64_t)(uintptr_t)d);
+    return 0;
+}
