@@ -1,17 +1,6 @@
-// sqlite: SQLite for Goose (DESIGN-ADDENDUM-2 in goose-web, question 3).
-//
-//   import sqlite from "../goose-sqlite";
-//
-//   let db = sqlite::local("data/shop.db");          // this thread's read-only connection
-//   let s = sqlite::prepare(db, "SELECT name FROM products WHERE id = ?");
-//   sqlite::bind(s, 1, 42);
-//   if sqlite::step(s) { print(sqlite::text(s, 0)); sqlite::reset(s); }
-//
-// Text columns are copied out; nothing returned points into SQLite. A
-// statement from prepare() comes back reset, and the same SQL text gives the
-// same statement, so do not run one query again while iterating it.
-// Links the system libsqlite3.
-
+// sqlite: SQLite for Goose; links the system libsqlite3.
+// A statement from prepare() comes back reset, and the same SQL text gives the same statement,
+// so do not run one query again while iterating it.
 namespace sqlite;
 import std;
 

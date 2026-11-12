@@ -1,5 +1,4 @@
-/* goose-sqlite: SQLite for Goose. local() keeps one connection per thread per
-   path and mode; statements are cached per connection by their SQL text.
+/* goose-sqlite: SQLite for Goose. local() keeps one connection per thread per path and mode.
    Connections use SQLITE_OPEN_NOMUTEX: use each one from one thread only. */
 #include "goose.h"
 #include <sqlite3.h>
