@@ -60,12 +60,12 @@ uint64_t gsq_open(gsq_bytes path, int32_t mode) {
     int flags = mode == 0 ? SQLITE_OPEN_READONLY : (mode == 1 || mode == 3) ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
     sqlite3 *db = NULL;
     if (sqlite3_open_v2(p, &db, flags | SQLITE_OPEN_NOMUTEX, NULL) != SQLITE_OK) {
-        strlcpy(open_error, db ? sqlite3_errmsg(db) : "out of memory", sizeof open_error);
+        snprintf(open_error, sizeof open_error, "%s", db ? sqlite3_errmsg(db) : "out of memory");
         sqlite3_close(db); free(p); return 0;
     }
     sqlite3_busy_timeout(db, 2000);
     if (mode == 3 && sqlite3_exec(db, "PRAGMA query_only=1", NULL, NULL, NULL) != SQLITE_OK) {
-        strlcpy(open_error, sqlite3_errmsg(db), sizeof open_error);
+        snprintf(open_error, sizeof open_error, "%s", sqlite3_errmsg(db));
         sqlite3_close(db); free(p); return 0;
     }
     gsq_db *d = calloc(1, sizeof *d);
@@ -196,9 +196,9 @@ uint64_t gsq_writer(gsq_bytes path, int32_t durable) {
     free(p);
     sqlite3_busy_timeout(d->db, 1000);
     const char *sync = durable ? "PRAGMA synchronous=FULL" : "PRAGMA synchronous=NORMAL";
-    if (!pragma_text_is(d->db, "PRAGMA journal_mode=WAL", "wal")) strlcpy(open_error, "cannot enable WAL", sizeof open_error);
+    if (!pragma_text_is(d->db, "PRAGMA journal_mode=WAL", "wal")) snprintf(open_error, sizeof open_error, "%s", "cannot enable WAL");
     else if (sqlite3_exec(d->db, sync, NULL, NULL, NULL) != SQLITE_OK || (durable && sqlite3_exec(d->db, "PRAGMA fullfsync=1", NULL, NULL, NULL) != SQLITE_OK))
-        strlcpy(open_error, sqlite3_errmsg(d->db), sizeof open_error);
+        snprintf(open_error, sizeof open_error, "%s", sqlite3_errmsg(d->db));
     else { d->next = h->head; h->head = d; return (uint64_t)(uintptr_t)d; }
     gsq_close((uint64_t)(uintptr_t)d);
     return 0;
