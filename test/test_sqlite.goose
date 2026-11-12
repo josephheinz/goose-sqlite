@@ -10,6 +10,8 @@ fn fresh(path: const u8[:]) {
     delete_file(path); delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
 }
 
+struct Seen { fails: i64, first: i64, last: i64 }
+
 struct Done { n: i64, ok: bool }
 
 thread_fn reader(path: u8[..256], i: i64) {
@@ -105,8 +107,60 @@ fn test_transactions() {
     fresh(path);
 }
 
+thread_fn watcher(path: u8[..256]) {
+    let db = sqlite::local(path, sqlite::Mode.QueryOnly);
+    var seen = Seen { fails: if sqlite::ok(db) { 0 } else { 1 }, first: -1, last: -1 };
+    while seen.fails == 0 {
+        let s = sqlite::prepare(db, "SELECT count(*) FROM u");
+        if sqlite::step(s) {
+            let c = sqlite::int(s, 0);
+            sqlite::reset(s);
+            if seen.first < 0 { seen.first = c; }
+            seen.last = c;
+        } else { seen.fails += 1; }
+        let stop, got = qpoll<i64>();
+        if got { break; }
+    }
+    qput(seen);
+}
+
+fn test_query_only() {
+    let path = "test/q.db";
+    fresh(path);
+    let w = sqlite::open(path, sqlite::Mode.Create);
+    sqlite::exec(w, "PRAGMA journal_mode=WAL");
+    sqlite::exec(w, "CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)");
+    add_row(w, "seed");
+    sqlite::close(w);
+    delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
+    let q = sqlite::local(path, sqlite::Mode.QueryOnly);
+    check("query_only reads wal without shm", sqlite::ok(q) && count_rows(q) == 1);
+    check("query_only rejects write", !add_row(q, "nope") && (sqlite::code(q) & 255) == 8);
+    sqlite::close(q);
+    delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
+    let r = sqlite::open(path, sqlite::Mode.ReadOnly);
+    check("readonly fails wal without shm", !sqlite::ok(sqlite::prepare(r, "SELECT count(*) FROM u")));
+    sqlite::close(r);
+    delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
+
+    let main_db = sqlite::open(path, sqlite::Mode.ReadWrite);
+    var p: u8[..256] = "";
+    p.append(path);
+    for i in 3 { thread_spawn(watcher, p); }
+    for i in 2000 { add_row(main_db, str("k", i)); }
+    sleep_ms(50);
+    for i in 3 { qput(1 as i64); }
+    var fails = 0;
+    var changed = true;
+    for i in 3 { let s = qget<Seen>(); fails += s.fails; changed = changed && s.last > s.first; }
+    check("threads see writes", fails == 0 && changed);
+    sqlite::close(main_db);
+    fresh(path);
+}
+
 fn main() {
     test_results();
+    test_query_only();
     test_transactions();
     let path = "test/t.db";
     delete_file(path);

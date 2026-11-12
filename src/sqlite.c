@@ -16,13 +16,17 @@ static __thread char open_error[256];
 uint64_t gsq_open(gsq_bytes path, int32_t mode) {
     char *p = malloc((size_t)path.len + 1);
     memcpy(p, path.data, (size_t)path.len); p[path.len] = 0;
-    int flags = mode == 0 ? SQLITE_OPEN_READONLY : mode == 1 ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+    int flags = mode == 0 ? SQLITE_OPEN_READONLY : (mode == 1 || mode == 3) ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
     sqlite3 *db = NULL;
     if (sqlite3_open_v2(p, &db, flags | SQLITE_OPEN_NOMUTEX, NULL) != SQLITE_OK) {
         strlcpy(open_error, db ? sqlite3_errmsg(db) : "out of memory", sizeof open_error);
         sqlite3_close(db); free(p); return 0;
     }
     sqlite3_busy_timeout(db, 2000);
+    if (mode == 3 && sqlite3_exec(db, "PRAGMA query_only=1", NULL, NULL, NULL) != SQLITE_OK) {
+        strlcpy(open_error, sqlite3_errmsg(db), sizeof open_error);
+        sqlite3_close(db); free(p); return 0;
+    }
     gsq_db *d = calloc(1, sizeof *d);
     d->db = db; d->path = p; d->mode = mode;
     return (uint64_t)(uintptr_t)d;

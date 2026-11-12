@@ -6,7 +6,7 @@ import std;
 
 struct Db { h: u64 }
 struct Stmt { h: u64 }
-enum Mode { ReadOnly, ReadWrite, Create }
+enum Mode { ReadOnly, ReadWrite, Create, QueryOnly }   // QueryOnly: read-write open, then query_only=1; use it to read a WAL database
 
 extern fn c_open(path: const u8[:], mode: i32) -> u64 = "gsq_open";
 extern fn c_local(path: const u8[:], mode: i32) -> u64 = "gsq_local";
@@ -36,7 +36,7 @@ extern fn c_rollback(h: u64) = "gsq_rollback";
 extern fn c_code(h: u64) -> i32 = "gsq_code";
 extern fn c_busy_timeout(h: u64, ms: i32) = "gsq_busy_timeout";
 
-fn mode_code(m: Mode) -> i32 { match m { ReadOnly => 0, ReadWrite => 1, Create => 2 } }
+fn mode_code(m: Mode) -> i32 { match m { ReadOnly => 0, ReadWrite => 1, Create => 2, QueryOnly => 3 } }
 fn open(path: const u8[:], mode: Mode = Mode.ReadOnly) -> Db { Db { h: c_open(path, mode_code(mode)) } }
 fn local(path: const u8[:], mode: Mode = Mode.ReadOnly) -> Db { Db { h: c_local(path, mode_code(mode)) } }
 fn ok(db: Db) -> bool { db.h != 0 }
