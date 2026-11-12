@@ -27,4 +27,4 @@ if sqlite::step(s) { print(sqlite::text(s, 0)); sqlite::reset(s); }
 - Linux needs the libsqlite3 development package.
 
 Test: `goose build test/test_sqlite.goose && test/test_sqlite`. The design
-is in `../goose-web/DESIGN-ADDENDUM-2.md`, question 3.
+is in `../goose-web/docs/DESIGN-ADDENDUM-2.md`, question 3.
