@@ -5,7 +5,7 @@ SQLite for [Goose](https://aardappel.github.io/goose/), on the system
 (gweb then declares it) or directly:
 
 ```goose
-import sqlite from "../goose-sqlite";
+import sqlite from "jheinz-bzs/goose-sqlite@v0.1.0";   // or a path to a checkout
 
 let db = sqlite::local("data/shop.db");          // this thread's read-only connection
 let s = sqlite::prepare(db, "SELECT name FROM products WHERE id = ?");
@@ -27,4 +27,4 @@ if sqlite::step(s) { print(sqlite::text(s, 0)); sqlite::reset(s); }
 - Linux needs the libsqlite3 development package.
 
 Test: `goose build test/test_sqlite.goose && test/test_sqlite`. The design
-is in `../goose-web/docs/DESIGN-ADDENDUM-2.md`, question 3.
+is in goose-web `docs/DESIGN-ADDENDUM-2.md`, question 3.

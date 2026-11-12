@@ -1,0 +1,4 @@
+test/test_sqlite
+test/t.db
+*.o
+*.dSYM/
