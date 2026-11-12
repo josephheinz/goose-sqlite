@@ -78,5 +78,53 @@ if inserted { sqlite::commit(db); }
   every commit reaches the disk, at a much higher cost per commit (about 0.6
   ms against about 10 microseconds on an Apple SSD).
 
-Test: `goose build test/test_sqlite.goose && test/test_sqlite`. The design
-is in goose-web `docs/DESIGN-ADDENDUM-2.md`, question 3.
+## Query builder
+
+`import sqlite.query;` builds SQL with bound values, so no value is ever
+spliced into the text.
+
+```goose
+import sqlite.query;
+
+var q = sqlite::select_from("todos", "id, title, done");
+sqlite::where(q, "done", "=", false);
+sqlite::where_raw(q, "title LIKE ?"); sqlite::arg(q, pattern);
+sqlite::order_by(q, "id", true);
+sqlite::limit(q, 20); sqlite::offset(q, 40);
+let s = sqlite::prepare(db, q);
+guard sqlite::ok(s) else { print(sqlite::query_error(q), sqlite::error(db)); return; }
+while sqlite::step(s) { ... sqlite::int(s, 0) ... }
+
+var u = sqlite::update_table("todos");
+sqlite::set(u, "done", true);
+sqlite::where(u, "id", "=", id);
+let n, ok = sqlite::update(sqlite::prepare(db, u));
+```
+
+- Start with `select_from`, `insert_into`, `update_table` or `delete_from`;
+  `where`, `where_null`, `where_not_null`, `where_in`, `where_raw` + `arg`,
+  `join`, `group_by`, `order_by`, `limit`, `offset`, `set`, `set_null`,
+  `returning` and `all_rows` follow in any order. `sql_text(q, out)` gives
+  the SQL for logs.
+- `where` clauses join with AND; put OR in a parenthesised `where_raw`.
+- Bind order: `set` values, `where` values in call order, then limit and
+  offset. `LIMIT ? OFFSET ?` is bound, so every page has one SQL text.
+- `where_in` pads to 1, 2, 4, ... 32 placeholders by repeating the last
+  value; an empty list is `0 = 1`; more than 32 values is an error.
+- Table and column names are checked (`name` or `table.name`), and so is
+  `op` (`=`, `!=`, `<>`, `<`, `<=`, `>`, `>=`, `LIKE`, `GLOB`). `cols`,
+  `where_raw`, `join`, `group_by` and `returning` refuse quotes, `;`, `--`,
+  `/*` and NUL; only `where_raw` may hold `?`. Bind string literals.
+- Misuse is a value, not an abort: the first one sets `query_error(q)`,
+  later calls do nothing, and `prepare` returns a failed `Stmt`. Misuse is
+  a bad name, operator or text; `?` and `arg` counts that differ; more than
+  64 values; `set` on a SELECT or DELETE; `where` on an INSERT; an UPDATE or
+  DELETE with no `where` and no `all_rows`; an INSERT or UPDATE with no
+  `set`; a clause too long for its buffer.
+- Equal queries give the same cached `Stmt`: do not run one while iterating
+  the other.
+
+Tests: `goose build test/test_sqlite.goose && test/test_sqlite` and
+`goose build test/test_query.goose && test/test_query`. The design is in
+goose-web `docs/DESIGN-ADDENDUM-2.md`, question 3, and
+`docs/DESIGN-ADDENDUM-17-PLATFORM.md`, decision 1.

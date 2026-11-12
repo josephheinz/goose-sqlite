@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.0 (unreleased)
+
+- Query builder: `import sqlite.query;` builds select, insert, update and delete with bound values and checked names.
+
 ## v0.2.1
 
 No code change. Tagged with goose-web v0.2.1, which pins one tag for all three packages.
