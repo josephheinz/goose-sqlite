@@ -215,10 +215,41 @@ fn test_writer() {
     fresh(path);
 }
 
+fn table_count(db: sqlite::Db, name: const u8[:]) -> i64 {
+    let s = sqlite::prepare(db, "SELECT count(*) FROM sqlite_master WHERE name = ?");
+    sqlite::bind(s, 1, name);
+    if !sqlite::step(s) { return -1; }
+    let n = sqlite::int(s, 0);
+    sqlite::reset(s);
+    return n;
+}
+
+fn test_migrate() {
+    let path = "test/m.db";
+    fresh(path);
+    let db = sqlite::writer(path);
+    let two = ["CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)", "INSERT INTO u (k, n) VALUES ('a', 1), ('b', 2); INSERT INTO u (k, n) VALUES ('c', 3)"];
+    check("migrate fresh", sqlite::migrate(db, two) && sqlite::version(db) == 2 && count_rows(db) == 3);
+    check("migrate again", sqlite::migrate(db, two) && count_rows(db) == 3);
+    let three = ["CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)", "INSERT INTO u (k, n) VALUES ('a', 1), ('b', 2); INSERT INTO u (k, n) VALUES ('c', 3)", "CREATE TABLE extra (a INTEGER)"];
+    check("migrate add step", sqlite::migrate(db, three) && sqlite::version(db) == 3 && table_count(db, "extra") == 1);
+    check("migrate newer refused", !sqlite::migrate(db, two) && sqlite::version(db) == 3);
+    sqlite::close(db);
+    fresh(path);
+    let db2 = sqlite::writer(path);
+    let bad = ["CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)", "INSERT INTO u (k, n) VALUES ('a', 1)", "CREATE TABLE half (a INTEGER); NOT SQL"];
+    check("migrate bad step", !sqlite::migrate(db2, bad));
+    check("migrate failure rolls back", sqlite::version(db2) == 0 && table_count(db2, "half") == 0 && table_count(db2, "u") == 0);
+    check("migrate retry after failure", sqlite::migrate(db2, two) && sqlite::version(db2) == 2);
+    sqlite::close(db2);
+    fresh(path);
+}
+
 fn main() {
     test_results();
     test_query_only();
     test_writer();
+    test_migrate();
     test_transactions();
     let path = "test/t.db";
     delete_file(path);

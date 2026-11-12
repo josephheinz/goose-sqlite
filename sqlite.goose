@@ -72,3 +72,19 @@ fn set_busy_timeout(db: Db, ms: i64) { c_busy_timeout(db.h, ms as i32); }
 fn begin(db: Db) -> bool { c_begin(db.h) != 0 }
 fn commit(db: Db) -> bool { c_commit(db.h) != 0 }
 fn rollback(db: Db) { c_rollback(db.h); }
+fn version(db: Db) -> i64 {
+    let s = prepare(db, "PRAGMA user_version");
+    if step(s) { let v = int(s, 0); reset(s); return v; }
+    return 0;
+}
+// Step i takes user_version from i to i + 1, all in one transaction; false if the database is newer than steps or a step fails.
+fn migrate(db: Db, steps: const u8[:][:]) -> bool {
+    if version(db) == steps.len { return true; }
+    if !begin(db) { return false; }
+    defer rollback(db);
+    let from = version(db);
+    if from > steps.len { return false; }
+    for i in from..steps.len { if !exec(db, steps[i]) { return false; } }
+    if !exec(db, str("PRAGMA user_version = ", steps.len)) { return false; }
+    return commit(db);
+}
