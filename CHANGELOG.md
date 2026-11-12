@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.1
+
+No code change. Tagged with goose-web v0.2.1, which pins one tag for all three packages.
+
 ## v0.2.0
 
 - Writes: `writer(path, durable)`, `run`, `insert`, `update`, `begin`, `commit`, `rollback`, `migrate` and `version`.
