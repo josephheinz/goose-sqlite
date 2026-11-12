@@ -5,7 +5,7 @@ SQLite for [Goose](https://aardappel.github.io/goose/), on the system
 (gweb then declares it) or directly:
 
 ```goose
-import sqlite from "josephheinz/goose-sqlite@v0.1.1";   // or a path to a checkout
+import sqlite from "josephheinz/goose-sqlite@v0.2.0";   // or a path to a checkout
 
 let db = sqlite::local("data/shop.db");          // this thread's read-only connection
 let s = sqlite::prepare(db, "SELECT name FROM products WHERE id = ?");
