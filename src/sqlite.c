@@ -100,3 +100,15 @@ void gsq_close(uint64_t h) {
 }
 int64_t gsq_changes(uint64_t h) { return h ? sqlite3_changes64(((gsq_db *)(uintptr_t)h)->db) : 0; }
 int64_t gsq_last_id(uint64_t h) { return h ? sqlite3_last_insert_rowid(((gsq_db *)(uintptr_t)h)->db) : 0; }
+int32_t gsq_run(uint64_t s) {
+    if (!s) return 0;
+    int rc;
+    while ((rc = sqlite3_step(ST(s))) == SQLITE_ROW) {}
+    sqlite3_reset(ST(s));
+    return rc == SQLITE_DONE;
+}
+int64_t gsq_stmt_last_id(uint64_t s) { return s ? sqlite3_last_insert_rowid(sqlite3_db_handle(ST(s))) : 0; }
+int64_t gsq_stmt_changes(uint64_t s) { return s ? sqlite3_changes64(sqlite3_db_handle(ST(s))) : 0; }
+/* The extended code of the last failure; sqlite3_reset in gsq_run keeps it. */
+int32_t gsq_code(uint64_t h) { return h ? sqlite3_extended_errcode(((gsq_db *)(uintptr_t)h)->db) : 0; }
+void gsq_busy_timeout(uint64_t h, int32_t ms) { if (h) sqlite3_busy_timeout(((gsq_db *)(uintptr_t)h)->db, ms); }

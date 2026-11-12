@@ -10,3 +10,4 @@ test/t.db
 *.db-wal
 *.db-shm
 .DS_Store
+test/*.db

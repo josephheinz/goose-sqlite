@@ -6,6 +6,10 @@ import os;
 var failed = 0;
 fn check(name: const u8[:], ok: bool) { if !ok { write_stderr(str("FAIL ", name, "\n")); failed += 1; } }
 
+fn fresh(path: const u8[:]) {
+    delete_file(path); delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
+}
+
 struct Done { n: i64, ok: bool }
 
 thread_fn reader(path: u8[..256], i: i64) {
@@ -23,7 +27,38 @@ thread_fn reader(path: u8[..256], i: i64) {
     qput(Done { n: sum, ok: ok && sqlite::local(path).h == db.h });
 }
 
+fn test_results() {
+    let path = "test/w.db";
+    fresh(path);
+    let db = sqlite::open(path, sqlite::Mode.Create);
+    sqlite::exec(db, "CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)");
+    let ins = sqlite::prepare(db, "INSERT INTO u (k, n) VALUES (?, ?)");
+    sqlite::bind(ins, 1, "a"); sqlite::bind(ins, 2, 1);
+    let id, ok = sqlite::insert(ins);
+    check("insert id", ok && id == 1);
+    let none = sqlite::prepare(db, "UPDATE u SET n = 5 WHERE id = ?");
+    sqlite::bind(none, 1, 99);
+    let n0, ok0 = sqlite::update(none);
+    check("update none", ok0 && n0 == 0);
+    sqlite::bind(none, 1, 1);
+    let n1, ok1 = sqlite::update(none);
+    check("update one", ok1 && n1 == 1);
+    sqlite::bind(ins, 1, "b"); sqlite::bind(ins, 2, 2);
+    check("run insert", sqlite::run(ins));
+    let del = sqlite::prepare(db, "DELETE FROM u WHERE k = ?");
+    sqlite::bind(del, 1, "b");
+    check("run delete", sqlite::run(del) && sqlite::changes(db) == 1);
+    sqlite::bind(ins, 1, "a"); sqlite::bind(ins, 2, 3);
+    check("unique fails", !sqlite::run(ins));
+    check("constraint code", sqlite::code(db) == 2067 && sqlite::constraint(db));
+    check("constraint text", find(sqlite::error(db), "UNIQUE") >= 0);
+    check("failed prepare run", !sqlite::run(sqlite::prepare(db, "INSERT INTO nope VALUES (1)")));
+    sqlite::close(db);
+    fresh(path);
+}
+
 fn main() {
+    test_results();
     let path = "test/t.db";
     delete_file(path);
     let w = sqlite::open(path, sqlite::Mode.Create);

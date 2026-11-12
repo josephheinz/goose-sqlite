@@ -27,6 +27,11 @@ extern fn c_is_null(s: u64, i: i32) -> i32 = "gsq_is_null";
 extern fn c_close(h: u64) = "gsq_close";
 extern fn c_changes(h: u64) -> i64 = "gsq_changes";
 extern fn c_last_id(h: u64) -> i64 = "gsq_last_id";
+extern fn c_run(s: u64) -> i32 = "gsq_run";
+extern fn c_stmt_last_id(s: u64) -> i64 = "gsq_stmt_last_id";
+extern fn c_stmt_changes(s: u64) -> i64 = "gsq_stmt_changes";
+extern fn c_code(h: u64) -> i32 = "gsq_code";
+extern fn c_busy_timeout(h: u64, ms: i32) = "gsq_busy_timeout";
 
 fn mode_code(m: Mode) -> i32 { match m { ReadOnly => 0, ReadWrite => 1, Create => 2 } }
 fn open(path: const u8[:], mode: Mode = Mode.ReadOnly) -> Db { Db { h: c_open(path, mode_code(mode)) } }
@@ -51,3 +56,10 @@ fn is_null(s: Stmt, col: i64) -> bool { c_is_null(s.h, col as i32) != 0 }
 fn close(db: Db) { c_close(db.h); }
 fn changes(db: Db) -> i64 { c_changes(db.h) }
 fn last_insert_id(db: Db) -> i64 { c_last_id(db.h) }
+fn run(s: Stmt) -> bool { c_run(s.h) != 0 }
+fn insert(s: Stmt) -> i64, bool { if c_run(s.h) != 0 { return c_stmt_last_id(s.h), true; } return 0, false; }
+fn update(s: Stmt) -> i64, bool { if c_run(s.h) != 0 { return c_stmt_changes(s.h), true; } return 0, false; }
+fn code(db: Db) -> i64 { c_code(db.h) }
+fn busy(db: Db) -> bool { (code(db) & 255) == 5 }
+fn constraint(db: Db) -> bool { (code(db) & 255) == 19 }
+fn set_busy_timeout(db: Db, ms: i64) { c_busy_timeout(db.h, ms as i32); }
