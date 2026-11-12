@@ -112,3 +112,8 @@ int64_t gsq_stmt_changes(uint64_t s) { return s ? sqlite3_changes64(sqlite3_db_h
 /* The extended code of the last failure; sqlite3_reset in gsq_run keeps it. */
 int32_t gsq_code(uint64_t h) { return h ? sqlite3_extended_errcode(((gsq_db *)(uintptr_t)h)->db) : 0; }
 void gsq_busy_timeout(uint64_t h, int32_t ms) { if (h) sqlite3_busy_timeout(((gsq_db *)(uintptr_t)h)->db, ms); }
+#define DB(h) (((gsq_db *)(uintptr_t)(h))->db)
+int32_t gsq_begin(uint64_t h) { return h && sqlite3_exec(DB(h), "BEGIN IMMEDIATE", NULL, NULL, NULL) == SQLITE_OK; }
+int32_t gsq_commit(uint64_t h) { return h && sqlite3_exec(DB(h), "COMMIT", NULL, NULL, NULL) == SQLITE_OK; }
+/* Only when a transaction is open, so a rollback after a failed BEGIN or a finished commit leaves the error state alone. */
+void gsq_rollback(uint64_t h) { if (h && !sqlite3_get_autocommit(DB(h))) sqlite3_exec(DB(h), "ROLLBACK", NULL, NULL, NULL); }

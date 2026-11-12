@@ -57,8 +57,57 @@ fn test_results() {
     fresh(path);
 }
 
+fn count_rows(db: sqlite::Db) -> i64 {
+    let s = sqlite::prepare(db, "SELECT count(*) FROM u");
+    if !sqlite::step(s) { return -1; }
+    let n = sqlite::int(s, 0);
+    sqlite::reset(s);
+    return n;
+}
+
+fn add_row(db: sqlite::Db, k: const u8[:]) -> bool {
+    let s = sqlite::prepare(db, "INSERT INTO u (k, n) VALUES (?, 0)");
+    sqlite::bind(s, 1, k);
+    return sqlite::run(s);
+}
+
+fn commit_with_defer(db: sqlite::Db) -> bool {
+    if !sqlite::begin(db) { return false; }
+    defer sqlite::rollback(db);
+    add_row(db, "deferred");
+    return sqlite::commit(db);
+}
+
+fn test_transactions() {
+    let path = "test/x.db";
+    fresh(path);
+    let a = sqlite::open(path, sqlite::Mode.Create);
+    sqlite::exec(a, "CREATE TABLE u (id INTEGER PRIMARY KEY, k TEXT UNIQUE, n INTEGER)");
+    check("begin", sqlite::begin(a));
+    add_row(a, "kept");
+    check("commit", sqlite::commit(a));
+    check("commit keeps", count_rows(a) == 1);
+    sqlite::begin(a);
+    add_row(a, "gone");
+    sqlite::rollback(a);
+    check("rollback discards", count_rows(a) == 1);
+    add_row(a, "kept");
+    let before = sqlite::code(a);
+    sqlite::rollback(a);
+    check("rollback idle", sqlite::code(a) == before && before == 2067);
+    check("defer rollback after commit", commit_with_defer(a) && count_rows(a) == 2);
+    let b = sqlite::open(path, sqlite::Mode.ReadWrite);
+    sqlite::begin(a);
+    sqlite::set_busy_timeout(b, 50);
+    check("begin busy", !sqlite::begin(b) && sqlite::busy(b));
+    sqlite::rollback(a);
+    sqlite::close(a); sqlite::close(b);
+    fresh(path);
+}
+
 fn main() {
     test_results();
+    test_transactions();
     let path = "test/t.db";
     delete_file(path);
     let w = sqlite::open(path, sqlite::Mode.Create);

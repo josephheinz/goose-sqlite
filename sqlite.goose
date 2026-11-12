@@ -30,6 +30,9 @@ extern fn c_last_id(h: u64) -> i64 = "gsq_last_id";
 extern fn c_run(s: u64) -> i32 = "gsq_run";
 extern fn c_stmt_last_id(s: u64) -> i64 = "gsq_stmt_last_id";
 extern fn c_stmt_changes(s: u64) -> i64 = "gsq_stmt_changes";
+extern fn c_begin(h: u64) -> i32 = "gsq_begin";
+extern fn c_commit(h: u64) -> i32 = "gsq_commit";
+extern fn c_rollback(h: u64) = "gsq_rollback";
 extern fn c_code(h: u64) -> i32 = "gsq_code";
 extern fn c_busy_timeout(h: u64, ms: i32) = "gsq_busy_timeout";
 
@@ -63,3 +66,6 @@ fn code(db: Db) -> i64 { c_code(db.h) }
 fn busy(db: Db) -> bool { (code(db) & 255) == 5 }
 fn constraint(db: Db) -> bool { (code(db) & 255) == 19 }
 fn set_busy_timeout(db: Db, ms: i64) { c_busy_timeout(db.h, ms as i32); }
+fn begin(db: Db) -> bool { c_begin(db.h) != 0 }
+fn commit(db: Db) -> bool { c_commit(db.h) != 0 }
+fn rollback(db: Db) { c_rollback(db.h); }
