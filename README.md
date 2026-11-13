@@ -1,11 +1,11 @@
 # goose-sqlite
 
 SQLite for [Goose](https://aardappel.github.io/goose/), on the system
-`libsqlite3`. Package `sqlite`, used by goose-web apps with `import sqlite;`
+`libsqlite3`. Package `sqlite`, used by gweb apps with `import sqlite;`
 (gweb then declares it) or directly:
 
 ```goose
-import sqlite from "josephheinz/goose-sqlite@v0.3.0";   // or a path to a checkout
+import sqlite from "josephheinz/goose-sqlite@v0.4.0";   // or a path to a checkout
 
 let db = sqlite::local("data/shop.db");          // this thread's read-only connection
 let s = sqlite::prepare(db, "SELECT name FROM products WHERE id = ?");
@@ -59,7 +59,7 @@ if inserted { sqlite::commit(db); }
   `error` says another thread is the writer. The claim is keyed by the path
   text, so `data/app.db` and `./data/app.db` are two claims. Closing the
   connection, or the thread ending, releases it. Keep writes on one thread (in
-  goose-web, the state owner) and never build SQL from input; bind values.
+  gweb, the state owner) and never build SQL from input; bind values.
 - Readers use `local(path, Mode.QueryOnly)`. It opens read-write and sets
   `query_only=1`, so it works whatever the order connections open in, sees
   committed writes at its next statement, and rejects writes with code 8.
@@ -126,5 +126,5 @@ let n, ok = sqlite::update(sqlite::prepare(db, u));
 
 Tests: `goose build test/test_sqlite.goose && test/test_sqlite` and
 `goose build test/test_query.goose && test/test_query`. The design is in
-goose-web `docs/DESIGN-ADDENDUM-2.md`, question 3, and
+gweb `docs/DESIGN-ADDENDUM-2.md`, question 3, and
 `docs/DESIGN-ADDENDUM-17-PLATFORM.md`, decision 1.

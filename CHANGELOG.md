@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.0
+
+No code change. Tagged with gweb v0.4.0 (the renamed goose-web), which pins one tag for all three packages.
+
 ## v0.3.0
 
 - Query builder: `import sqlite.query;` builds select, insert, update and delete with bound values and checked names.
