@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.0
+
+No code change. Tagged with gweb v0.6.0.
+
 ## v0.5.1
 
 Tagged with gweb v0.5.1. Whether `ReadOnly` reads a WAL database without its `-shm` file depends on the SQLite build; the test and README now say so (it fails on macOS, reads on Ubuntu). Use `QueryOnly` for a database the app writes.
