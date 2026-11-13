@@ -138,8 +138,10 @@ fn test_query_only() {
     check("query_only rejects write", !add_row(q, "nope") && (sqlite::code(q) & 255) == 8);
     sqlite::close(q);
     delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
+    // A ReadOnly open of a WAL database without its -shm file fails on some SQLite builds (macOS) and reads on
+    // others (Ubuntu's), so only QueryOnly is promised. Check that ReadOnly never writes either way.
     let r = sqlite::open(path, sqlite::Mode.ReadOnly);
-    check("readonly fails wal without shm", !sqlite::ok(sqlite::prepare(r, "SELECT count(*) FROM u")));
+    check("readonly rejects write", !add_row(r, "nope"));
     sqlite::close(r);
     delete_file(str(path, "-wal")); delete_file(str(path, "-shm"));
 

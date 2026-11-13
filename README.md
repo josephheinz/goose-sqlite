@@ -22,9 +22,9 @@ if sqlite::step(s) { print(sqlite::text(s, 0)); sqlite::reset(s); }
 - Text columns are copied out (`text(s, col, out)` or `text(s, col)`).
 - Errors: `ok(db)`, `ok(stmt)`, the `bool` results, and `error(db)`.
 - `ReadOnly` is for a database nobody writes, in rollback-journal mode
-  (`PRAGMA journal_mode=DELETE`): a `ReadOnly` open of a WAL database fails at
-  the first `prepare` unless the `-shm` file already exists. For a database the
-  app writes, read with `Mode.QueryOnly`.
+  (`PRAGMA journal_mode=DELETE`). Whether a `ReadOnly` open of a WAL database
+  can read without its `-shm` file depends on the SQLite build (it fails on
+  macOS). For a database the app writes, read with `Mode.QueryOnly`.
 - A worker that aborts mid-statement or mid-transaction releases its
   connections when its thread ends, so its lock does not outlive it.
 - Statements: `run(stmt)` steps to the end and resets; `insert(stmt)` also
