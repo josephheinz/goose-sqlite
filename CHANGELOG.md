@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.0 (unreleased)
+## v0.3.0
 
 - Query builder: `import sqlite.query;` builds select, insert, update and delete with bound values and checked names.
 
