@@ -34,6 +34,30 @@ if sqlite::step(s) { print(sqlite::text(s, 0)); sqlite::reset(s); }
   `busy(db)` and `constraint(db)` test its primary code; `set_busy_timeout`
   changes the wait.
 - Linux needs the libsqlite3 development package.
+- `time_limit(db, ms)` interrupts a statement that runs longer than `ms`
+  milliseconds from its first step (0 clears it). `step`, `run` or `exec`
+  then return false and `interrupted(db)` is true. `begin`, `commit` and
+  `rollback` have no limit. Use it for queries built from user input, such as
+  full-text search.
+
+## Full-text search (FTS5)
+
+FTS5 is part of SQLite only when the library was built with it. The system
+`libsqlite3` on macOS has it. Debian, Ubuntu and Alpine build theirs with it
+too, as far as we know; this is not tested here. Check the library the
+server links, at start-up:
+
+```goose
+let s = sqlite::prepare(db, "SELECT sqlite_compileoption_used('ENABLE_FTS5')");
+let fts5 = sqlite::step(s) && sqlite::int(s, 0) == 1;
+sqlite::reset(s);
+```
+
+Or from a shell on the server: `sqlite3 :memory: "SELECT
+sqlite_compileoption_used('ENABLE_FTS5')"` prints 1 (the `sqlite3` tool may
+use its own copy of SQLite; the check in Goose is the one that counts). If it
+is 0, install a `libsqlite3` built with `SQLITE_ENABLE_FTS5`. Give a search
+query a `time_limit`: a short prefix can match much of an index.
 
 ## Writes
 

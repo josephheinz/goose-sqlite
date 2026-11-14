@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.0 (unreleased)
+
+- `sqlite::time_limit(db, ms)`: a statement that runs longer than `ms` milliseconds from its first step is interrupted
+  (a progress handler; 0 clears it). `sqlite::interrupted(db)` says the limit stopped the last statement.
+- README: full-text search needs a `libsqlite3` built with FTS5, and how to check.
+
 ## v1.1.0
 
 No code change. Tagged with gweb v1.1.0.

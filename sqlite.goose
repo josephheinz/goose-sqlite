@@ -36,6 +36,8 @@ extern fn c_commit(h: u64) -> i32 = "gsq_commit";
 extern fn c_rollback(h: u64) = "gsq_rollback";
 extern fn c_code(h: u64) -> i32 = "gsq_code";
 extern fn c_busy_timeout(h: u64, ms: i32) = "gsq_busy_timeout";
+extern fn c_time_limit(h: u64, ms: i64) = "gsq_time_limit";
+extern fn c_interrupted(h: u64) -> i32 = "gsq_interrupted";
 
 fn mode_code(m: Mode) -> i32 { match m { ReadOnly => 0, ReadWrite => 1, Create => 2, QueryOnly => 3 } }
 fn open(path: const u8[:], mode: Mode = Mode.ReadOnly) -> Db { Db { h: c_open(path, mode_code(mode)) } }
@@ -69,6 +71,12 @@ fn code(db: Db) -> i64 { c_code(db.h) }
 fn busy(db: Db) -> bool { (code(db) & 255) == 5 }
 fn constraint(db: Db) -> bool { (code(db) & 255) == 19 }
 fn set_busy_timeout(db: Db, ms: i64) { c_busy_timeout(db.h, ms as i32); }
+// A statement that runs longer than ms milliseconds from its first step is interrupted: step and run return false,
+// interrupted(db) is true and code(db) is 9 (SQLITE_INTERRUPT). 0 clears it (the default). exec counts from its call;
+// begin, commit and rollback have no limit.
+fn time_limit(db: Db, ms: i64) { c_time_limit(db.h, ms); }
+// True when the time limit stopped the last statement that started on db.
+fn interrupted(db: Db) -> bool { c_interrupted(db.h) != 0 }
 fn begin(db: Db) -> bool { c_begin(db.h) != 0 }
 fn commit(db: Db) -> bool { c_commit(db.h) != 0 }
 fn rollback(db: Db) { c_rollback(db.h); }

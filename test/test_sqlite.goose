@@ -273,7 +273,66 @@ fn test_abort_releases_lock() {
     fresh(path);
 }
 
+// time_limit (1.2): a slow statement stops near its limit; quick ones, exec, and the next statement are unaffected.
+let SLOW = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM (SELECT x FROM c LIMIT 400000000)";
+let QUICK = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) FROM (SELECT x FROM c LIMIT 20000)";
+
+fn test_time_limit() {
+    let path = "test/tl.db";
+    fresh(path);
+    let db = sqlite::open(path, sqlite::Mode.Create);
+    check("tl open", sqlite::ok(db));
+    check("tl no limit: not interrupted", !sqlite::interrupted(db));
+    sqlite::time_limit(db, 100);
+    let s = sqlite::prepare(db, SLOW);
+    let t0 = time();
+    let got = sqlite::step(s);
+    let ms = ((time() - t0) * 1000.0) as i64;
+    check("tl slow: step false", !got);
+    check("tl slow: interrupted", sqlite::interrupted(db));
+    check("tl slow: code 9", sqlite::code(db) == 9);
+    check(str("tl slow: stopped after the limit, before 2 s (", ms, " ms)"), ms >= 90 && ms < 2000);
+    let q = sqlite::prepare(db, QUICK);
+    check("tl quick: a row under the limit", sqlite::step(q) && sqlite::int(q, 0) == 20000);
+    sqlite::reset(q);
+    check("tl quick: not interrupted", !sqlite::interrupted(db));
+    check("tl exec: interrupted", !sqlite::exec(db, str("CREATE TABLE big AS ", SLOW)) && sqlite::interrupted(db));
+    check("tl exec: quick works", sqlite::exec(db, "CREATE TABLE small (a)") && !sqlite::interrupted(db));
+    check("tl begin and commit", sqlite::begin(db) && sqlite::exec(db, "INSERT INTO small VALUES (1)") && sqlite::commit(db));
+    sqlite::time_limit(db, 0);
+    let q2 = sqlite::prepare(db, QUICK);
+    check("tl cleared", sqlite::step(q2) && !sqlite::interrupted(db));
+    sqlite::reset(q2);
+    // A statement keeps its own deadline across steps: rows from a slow scan stop at the limit.
+    sqlite::time_limit(db, 150);
+    let rows = sqlite::prepare(db, "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c LIMIT 400000000");
+    var n = 0;
+    let t1 = time();
+    while sqlite::step(rows) { n += 1; }
+    let ms2 = ((time() - t1) * 1000.0) as i64;
+    check(str("tl rows: stopped by the limit (", n, " rows, ", ms2, " ms)"), sqlite::interrupted(db) && n > 0 && ms2 < 2000);
+    sqlite::close(db);
+    fresh(path);
+}
+
+// The README's FTS5 check; with FTS5, a MATCH query (macOS has it; Linux builds are believed to).
+fn test_fts5() {
+    let db = sqlite::open(":memory:", sqlite::Mode.Create);
+    let s = sqlite::prepare(db, "SELECT sqlite_compileoption_used('ENABLE_FTS5')");
+    let fts5 = sqlite::step(s) && sqlite::int(s, 0) == 1;
+    sqlite::reset(s);
+    if !fts5 { write_stderr("note: this libsqlite3 has no FTS5; the MATCH check is skipped\n"); sqlite::close(db); return; }
+    check("fts5 table", sqlite::exec(db, "CREATE VIRTUAL TABLE doc USING fts5(title, body)"));
+    check("fts5 insert", sqlite::exec(db, "INSERT INTO doc VALUES ('Geese', 'Geese fly south'), ('Ducks', 'Ducks swim')"));
+    let q = sqlite::prepare(db, "SELECT title FROM doc WHERE doc MATCH ? ORDER BY rank");
+    sqlite::bind(q, 1, "fly");
+    check("fts5 match", sqlite::step(q) && sqlite::text(q, 0) == "Geese" && !sqlite::step(q));
+    sqlite::close(db);
+}
+
 fn main() {
+    test_time_limit();
+    test_fts5();
     test_results();
     test_query_only();
     test_writer();
