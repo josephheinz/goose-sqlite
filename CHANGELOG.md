@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.0 (unreleased)
+## v1.2.0
 
 - `sqlite::time_limit(db, ms)`: a statement that runs longer than `ms` milliseconds from its first step is interrupted
   (a progress handler; 0 clears it). `sqlite::interrupted(db)` says the limit stopped the last statement.
